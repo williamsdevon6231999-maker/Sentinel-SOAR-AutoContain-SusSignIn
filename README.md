@@ -12,7 +12,7 @@ The playbook analyzes incident entities, determines whether a user or IP is pres
 
 Primary capabilities include:
 
-- Entity extraction (Accounts and IP Addresses)
+- Entity extraction
 - Conditional response logic
 - Automated incident comment generation
 - Risk score evaluation workflow
@@ -40,7 +40,7 @@ This project demonstrates practical SOAR engineering using Azure Sentinel automa
 
 ### 1. Entity Enrichment
 - Retrieves Account and IP entities from Sentinel incidents.
-- Determines whether a User Principal Name (UPN) exists.
+- Determines whether a User Principal Name exists.
 - Falls back to IP-based logic when no user entity is found.
 
 ### 2. Conditional Decision Engine
@@ -96,7 +96,7 @@ playbook/IR-AutoContain-SuspiciousSignin.json
 
 5. Configure required API connections:
    - Microsoft Sentinel
-   - Microsoft Graph (Get User)
+   - Microsoft Graph 
    - Azure Resource Manager
 
 6. Attach the playbook to an Analytics Rule or Incident Trigger.
