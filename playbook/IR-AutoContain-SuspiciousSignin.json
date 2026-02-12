@@ -1,0 +1,491 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "triggers": {
+            "Microsoft_Sentinel_incident": {
+                "type": "ApiConnectionWebhook",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                        }
+                    },
+                    "body": {
+                        "callback_url": "@{listCallbackUrl()}"
+                    },
+                    "path": "/incident-creation"
+                }
+            }
+        },
+        "actions": {
+            "Initialize_variables": {
+                "runAfter": {},
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "UserUPN",
+                            "type": "string"
+                        },
+                        {
+                            "name": "IPAddress",
+                            "type": "string"
+                        },
+                        {
+                            "name": "Decision",
+                            "type": "string",
+                            "value": "Triage"
+                        }
+                    ]
+                }
+            },
+            "Get_incident": {
+                "runAfter": {
+                    "Initialize_variables": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ApiConnection",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                        }
+                    },
+                    "method": "post",
+                    "body": {
+                        "incidentArmId": "@triggerBody()?['object']?['id']"
+                    },
+                    "path": "/Incidents"
+                }
+            },
+            "Entities_-_Get_Accounts": {
+                "runAfter": {
+                    "Get_incident": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ApiConnection",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                        }
+                    },
+                    "method": "post",
+                    "body": "@triggerBody()?['object']?['properties']?['relatedEntities']",
+                    "path": "/entities/account"
+                }
+            },
+            "For_each": {
+                "foreach": "@body('Entities_-_Get_Accounts')?['Accounts']",
+                "actions": {
+                    "Set_variable": {
+                        "runAfter": {
+                            "Condition_1": [
+                                "Succeeded"
+                            ]
+                        },
+                        "type": "SetVariable",
+                        "inputs": {
+                            "name": "UserUPN",
+                            "value": "@{items('For_each')?['Name']}"
+                        }
+                    },
+                    "Condition_1": {
+                        "actions": {},
+                        "else": {
+                            "actions": {}
+                        },
+                        "expression": {
+                            "and": [
+                                {
+                                    "equals": [
+                                        "@items('For_each')?['Name']\r\n",
+                                        "@"
+                                    ]
+                                }
+                            ]
+                        },
+                        "type": "If"
+                    }
+                },
+                "runAfter": {
+                    "Entities_-_Get_Accounts": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "Foreach"
+            },
+            "Entities_-_Get_IPs": {
+                "runAfter": {
+                    "For_each": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ApiConnection",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                        }
+                    },
+                    "method": "post",
+                    "body": "@triggerBody()?['object']?['properties']?['relatedEntities']\r\n",
+                    "path": "/entities/ip"
+                }
+            },
+            "For_each_1": {
+                "foreach": "@body('Entities_-_Get_IPs')?['IPs']",
+                "actions": {
+                    "Set_variable_1": {
+                        "type": "SetVariable",
+                        "inputs": {
+                            "name": "IPAddress",
+                            "value": "@{items('For_each_1')}"
+                        }
+                    }
+                },
+                "runAfter": {
+                    "Entities_-_Get_IPs": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "Foreach"
+            },
+            "Condition": {
+                "actions": {
+                    "Add_comment_to_incident_(V3)": {
+                        "type": "ApiConnection",
+                        "inputs": {
+                            "host": {
+                                "connection": {
+                                    "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                                }
+                            },
+                            "method": "post",
+                            "body": {
+                                "incidentArmId": "@coalesce(triggerBody()?['IncidentArmId'], triggerBody()?['incidentArmId'])",
+                                "message": "<p class=\"editor-paragraph\">SOAR PLAYBOOK TRIGGERED – Suspicious Sign-In Detected<br><br>User: @{variables('UserUPN')}<br>Source IP: @{variables('IPAddress')}<br><br>Automated response actions initiated:<br>- Incident enriched with user and IP entities<br>- Risk evaluated via playbook logic<br>- Incident escalated for analyst review<br><br>Mapped to CMMC Level 2 (IR &amp; AU controls).</p><br>"
+                            },
+                            "path": "/Incidents/Comment"
+                        }
+                    },
+                    "Update_incident": {
+                        "runAfter": {
+                            "Add_comment_to_incident_(V3)": [
+                                "Succeeded"
+                            ]
+                        },
+                        "type": "ApiConnection",
+                        "inputs": {
+                            "host": {
+                                "connection": {
+                                    "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                                }
+                            },
+                            "method": "put",
+                            "body": {
+                                "incidentArmId": "@body('Get_incident')?['id']",
+                                "tagsToAdd": {
+                                    "TagsToAdd": [
+                                        {
+                                            "Tag": "auto-response"
+                                        },
+                                        {
+                                            "Tag": "suspicious-signin"
+                                        },
+                                        {
+                                            "Tag": "SOAR"
+                                        },
+                                        {
+                                            "Tag": "CMMC-L2"
+                                        }
+                                    ]
+                                },
+                                "ownerAction": "Assign",
+                                "owner": "DevonWiliams@PersonalLab635.onmicrosoft.com",
+                                "severity": "High",
+                                "status": "Active"
+                            },
+                            "path": "/Incidents"
+                        }
+                    }
+                },
+                "runAfter": {
+                    "Condition_2": [
+                        "Succeeded"
+                    ]
+                },
+                "else": {
+                    "actions": {
+                        "Switch": {
+                            "cases": {
+                                "Case_MEDIUM": {
+                                    "case": "MEDIUM",
+                                    "actions": {
+                                        "Add_comment_MEDIUM": {
+                                            "type": "ApiConnection",
+                                            "inputs": {
+                                                "host": {
+                                                    "connection": {
+                                                        "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                                                    }
+                                                },
+                                                "method": "post",
+                                                "body": {
+                                                    "incidentArmId": "@body('Get_incident')?['id']",
+                                                    "message": "<p class=\"editor-paragraph\">AI Decision: MEDIUM risk. Monitoring only.</p><br>"
+                                                },
+                                                "path": "/Incidents/Comment"
+                                            }
+                                        }
+                                    }
+                                },
+                                "Case_LOW": {
+                                    "case": "LOW",
+                                    "actions": {
+                                        "Add_comment_LOW": {
+                                            "type": "ApiConnection",
+                                            "inputs": {
+                                                "host": {
+                                                    "connection": {
+                                                        "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                                                    }
+                                                },
+                                                "method": "post",
+                                                "body": {
+                                                    "incidentArmId": "@body('Get_incident')?['id']",
+                                                    "message": "<p class=\"editor-paragraph\">AI Decision: LOW risk. Logged only.</p><br>"
+                                                },
+                                                "path": "/Incidents/Comment"
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "default": {
+                                "actions": {
+                                    "Add_comment_DEFAULT": {
+                                        "type": "ApiConnection",
+                                        "inputs": {
+                                            "host": {
+                                                "connection": {
+                                                    "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                                                }
+                                            },
+                                            "method": "post",
+                                            "body": {
+                                                "incidentArmId": "@body('Get_incident')?['id']",
+                                                "message": "<p class=\"editor-paragraph\">AI Decision: Unknown riskScore returned.</p><br>"
+                                            },
+                                            "path": "/Incidents/Comment"
+                                        }
+                                    }
+                                }
+                            },
+                            "expression": "@{body('Parse_JSON')?['riskScore']}@{coalesce(body('Parse_JSON')?['riskScore'], 'UNKNOWN')}",
+                            "type": "Switch"
+                        }
+                    }
+                },
+                "expression": {
+                    "and": [
+                        {
+                            "equals": [
+                                "@variables('RiskScore')",
+                                "HIGH"
+                            ]
+                        }
+                    ]
+                },
+                "type": "If"
+            },
+            "Condition_2": {
+                "actions": {
+                    "Get_user": {
+                        "type": "ApiConnection",
+                        "inputs": {
+                            "host": {
+                                "connection": {
+                                    "name": "@parameters('$connections')['azuread']['connectionId']"
+                                }
+                            },
+                            "method": "get",
+                            "path": "/v1.0/users/@{encodeURIComponent(variables('UserUPN'))}"
+                        }
+                    },
+                    "Compose": {
+                        "runAfter": {
+                            "Get_user": [
+                                "Succeeded"
+                            ]
+                        },
+                        "type": "Compose",
+                        "inputs": {
+                            "riskScore": "HIGH",
+                            "confidence": 87,
+                            "recommendedActions": [
+                                "Force password reset",
+                                "Require MFA re-registration",
+                                "Block IP temporarily"
+                            ],
+                            "rationale": "Multiple failed logins detected. Possible password spraying activity."
+                        }
+                    },
+                    "Parse_JSON": {
+                        "runAfter": {
+                            "Compose": [
+                                "Succeeded"
+                            ]
+                        },
+                        "type": "ParseJson",
+                        "inputs": {
+                            "content": "@json(string(outputs('Compose')))",
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "riskScore": {
+                                        "type": "string"
+                                    },
+                                    "confidence": {
+                                        "type": "integer"
+                                    },
+                                    "recommendedActions": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "rationale": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "riskScore",
+                                    "confidence",
+                                    "recommendedActions",
+                                    "rationale"
+                                ]
+                            }
+                        }
+                    },
+                    "Set_variable_3": {
+                        "runAfter": {
+                            "Parse_JSON": [
+                                "Succeeded"
+                            ]
+                        },
+                        "type": "SetVariable",
+                        "inputs": {
+                            "name": "RiskScore",
+                            "value": "HIGH"
+                        }
+                    }
+                },
+                "runAfter": {
+                    "Initialize_variables_1": [
+                        "Succeeded"
+                    ]
+                },
+                "else": {
+                    "actions": {
+                        "For_each_2": {
+                            "foreach": "@body('Entities_-_Get_Accounts')?['Accounts']",
+                            "actions": {
+                                "Set_variable_2": {
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                        "name": "IPAddress",
+                                        "value": "@items('For_each_2')?['Name']"
+                                    }
+                                },
+                                "Compose_1": {
+                                    "runAfter": {
+                                        "Set_variable_2": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "Compose",
+                                    "inputs": "concat('No Entra user entity found. Using IP address entity: ', variables('IPAddress'))\n"
+                                }
+                            },
+                            "type": "Foreach"
+                        },
+                        "Set_variable_4": {
+                            "runAfter": {
+                                "For_each_2": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "SetVariable",
+                            "inputs": {
+                                "name": "RiskScore",
+                                "value": "Low"
+                            }
+                        }
+                    }
+                },
+                "expression": {
+                    "and": [
+                        {
+                            "contains": [
+                                "@variables('UserUPN')",
+                                "@"
+                            ]
+                        }
+                    ]
+                },
+                "type": "If"
+            },
+            "Initialize_variables_1": {
+                "runAfter": {
+                    "For_each_1": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "RiskScore",
+                            "type": "string",
+                            "value": "Low"
+                        }
+                    ]
+                }
+            }
+        },
+        "outputs": {},
+        "parameters": {
+            "$connections": {
+                "type": "Object",
+                "defaultValue": {}
+            }
+        }
+    },
+    "parameters": {
+        "$connections": {
+            "type": "Object",
+            "value": {
+                "azuresentinel": {
+                    "id": "/subscriptions/be988809-d911-424a-aa40-62079dfd2601/providers/Microsoft.Web/locations/eastus2/managedApis/azuresentinel",
+                    "connectionId": "/subscriptions/be988809-d911-424a-aa40-62079dfd2601/resourceGroups/rg-zero-trust-secops/providers/Microsoft.Web/connections/azuresentinel-IR-AutoContain-SuspiciousSignin",
+                    "connectionName": "azuresentinel-IR-AutoContain-SuspiciousSignin",
+                    "connectionProperties": {
+                        "authentication": {
+                            "type": "ManagedServiceIdentity"
+                        }
+                    }
+                },
+                "azuread": {
+                    "id": "/subscriptions/be988809-d911-424a-aa40-62079dfd2601/providers/Microsoft.Web/locations/eastus2/managedApis/azuread",
+                    "connectionId": "/subscriptions/be988809-d911-424a-aa40-62079dfd2601/resourceGroups/rg-zero-trust-secops/providers/Microsoft.Web/connections/azuread",
+                    "connectionName": "azuread",
+                    "connectionProperties": {}
+                }
+            }
+        }
+    }
+}
