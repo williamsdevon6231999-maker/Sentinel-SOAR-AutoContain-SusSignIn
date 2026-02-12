@@ -6,7 +6,7 @@ Azure Sentinel SOAR playbook that automatically enriches incidents, extracts ent
 
 ## Overview
 
-IR-AutoContain-SuspiciousSignin is a Microsoft Sentinel Logic App (Consumption) playbook designed to support automated incident response workflows.
+IR-AutoContain-SuspiciousSignin is a Microsoft Sentinel Logic App playbook designed to support automated incident response workflows.
 
 The playbook analyzes incident entities, determines whether a user or IP is present, applies conditional logic based on enrichment data, and generates structured incident comments for SOC visibility.
 
